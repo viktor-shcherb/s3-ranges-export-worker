@@ -1,0 +1,69 @@
+version: "2"  # use the modern schema (v2+)
+
+run:
+  timeout: 5m               # give linters plenty of time on a cold CI machine
+  issues-exit-code: 1       # fail CI on any lint error
+  new-from-rev: "master"    # only report new issues since master tip
+
+linters:
+  enable:
+    # Core correctness
+    - govet
+    - staticcheck
+    - errcheck
+    - errorlint
+
+    # Code quality & simplicity
+    - unused
+    - deadcode
+    - ineffassign
+    - gocyclo
+    - gosimple
+    - revive
+
+    # Security
+    - gosec
+
+  disable:
+    - lll   # disable line-length (opt in if you want it)
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15      # functions more complex than 15 are flagged
+  revive:
+    severity: warning
+    rules:
+      - name: var-naming
+        arguments: [camelCase]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+    - gci
+  settings:
+    gofmt:
+      simplify: true         # equivalent to `gofmt -s`
+    goimports:
+      local-prefixes: github.com/viktor-shcherb/commoncrawl-chunks-export-worker
+    gci:
+      sections:
+        - Standard
+        - Default
+        - Blank
+        - Prefix(github.com/your-org/your-repo)
+
+issues:
+  max-issues-per-linter: 0  # no quotas—every issue must be addressed
+  max-same-issues: 0
+  exclude-use-default: false
+
+skip-dirs:
+  - vendor
+  - build
+  - bin
+  - .git
+
+skip-files:
+  - '.*_test\.go'
+  - '.*\.pb\.go'            # generated protobufs, etc.
