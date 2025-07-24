@@ -79,4 +79,68 @@ The worker is organized into the following key components to balance throughput,
     * Starts the scheduler and metrics loop concurrently.
 
 
+### Data pipeline
+
+Here’s are step-by-step transformation flow that covers the end-to-end pipeline:
+
+1. **Read & Decode Parquet → `[]InputRecord`**
+
+    * Simple row-by-row scan of the S3-backed Parquet files.
+
+2. **Group by `GroupID` → `[]RequestJob`**
+
+```go
+// For each run of records with the same non-nil GroupID:
+//    sort by Offset (already guaranteed)
+//    StartOffset = first.Offset
+//    EndOffset   = last.Offset + last.Length
+//    Members     = list of each {Offset,Length}
+// Solo records (GroupID==nil) become Jobs with one Member.
+```
+
+3. **Fetch from S3 → `FetchedJob`**
+
+```go
+// Use GetObject with Range: "bytes={StartOffset}-{EndOffset-1}"
+// Read body entirely into Data []byte.
+```
+
+4. **Slice out each Member → `[]SliceResult`**
+
+```go
+for _, m := range job.Members {
+ start := m.Offset - job.StartOffset
+ end   := start + m.Length
+ payload := fetched.Data[start:end]
+ append(SliceResult{job.GroupID, job.WARCFilename, m.Offset, payload})
+}
+```
+
+5. **Parse WARC payload → HTML → plaintext → `PlainTextRecord`**
+
+```go
+// wrap payload via gzip.NewReader + warcio.ArchiveIterator
+// locate .ContentStream() for `response` record
+// run HTMLToText(...) → text
+// emit PlainTextRecord{GroupID, Filename, Offset, text}
+```
+
+6. **Write out as Parquet**
+
+* Collect batches of `PlainTextRecord` (order doesn’t matter).
+* Flush to S3 as new Parquet files.
+
+---
+
+### Why this is simple and extensible
+
+* **Separation of concerns**: each type encapsulates exactly one stage’s contract.
+* **Grouped fetches** avoid redundant S3 calls.
+* **Slicing in memory** is just index math—no streaming complexity.
+* **Decoding & HTML-to-text** live in the final map–transform.
+* **Output model** is flat and self-contained (ready for downstream ML or analysis).
+
+You can now unit-test each transformation in isolation, and if you later need richer metadata (timestamps, HTTP headers, full WARC headers) you can add fields to these structs without touching the flow.
+
+
 
